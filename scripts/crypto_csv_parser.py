@@ -11,6 +11,10 @@ class CryptoCSVParser:
     def get_s3_data(self, ds, bucket_name, root_folder):
         s3 = S3Hook(aws_conn_id=self.aws_conn_id)
         file_path = f"{root_folder}/{ds}/crypto_data.csv"
+
+        if not s3.check_for_key(file_path, bucket_name):
+            raise FileNotFoundError(f"Missing file: s3://{bucket_name}/{file_path}")
+
         s3_obj = s3.get_key(
             key=file_path,
             bucket_name=bucket_name
@@ -26,31 +30,41 @@ class CryptoCSVParser:
         pg_hook = PostgresHook(postgres_conn_id=self.pg_conn_id)
         schema_name = bucket_name.replace('-', '_').lower()
 
-        conn = pg_hook.get_conn()
-        cursor = conn.cursor()
+        engine = pg_hook.get_sqlalchemy_engine()
 
-        try:
-            query = f"INSERT INTO {schema_name}.crypto_files (file_path) VALUES (%s) RETURNING id;"
-            cursor.execute(query, (file_path,))
-            file_id = cursor.fetchone()[0]
+        with engine.begin() as conn:
+            try:
+                from sqlalchemy import text
+                
+                query = text(f"""
+                    INSERT INTO {schema_name}.crypto_files (file_path) 
+                    VALUES (:path)
+                    ON CONFLICT (file_path) 
+                    DO UPDATE SET 
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING id;
+                """)
+                
+                result = conn.execute(query, {"path": file_path})
+                file_id = result.fetchone()[0]
 
-            df['file_id'] = file_id
-            df = df.rename(columns={'id':'crypo_id'})
+                df['file_id'] = file_id
+                df = df.rename(columns={'id': 'crypto_id'})
+                df.columns = [c.lower() for c in df.columns]
 
-            data_to_insert = [tuple(x) for x in df.values]
-            target_fields = list(df.columns)
+                conn.execute(text(f"DELETE FROM {schema_name}.crypto_data WHERE file_id = :fid"), {"fid": file_id})
 
-            pg_hook.insert_rows(
-                table=f"{schema_name}.crypto_data",
-                rows=data_to_insert,
-                target_fields=target_fields,
-                commit_every=0
-            )
+                df.to_sql(
+                    name='crypto_data',
+                    schema=schema_name,
+                    con=conn,
+                    if_exists='append',
+                    index=False,
+                    method='multi',
+                    chunksize=1000
+                )
 
-            conn.commit()
-        except Exception as e:
-            conn.rollback()
-            raise e
-        finally:
-            cursor.close()
-            conn.close()
+                print(f"Successfully loaded {len(df)} rows for file_id {file_id}")
+            except Exception as e:
+                print(f"Error during load: {e}")
+                raise e
