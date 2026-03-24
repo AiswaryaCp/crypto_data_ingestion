@@ -1,0 +1,35 @@
+CREATE TABLE IF NOT EXISTS coin_crypto_data.crypto_data (
+    id SERIAL PRIMARY KEY,
+    crypto_id VARCHAR(250),
+    symbol VARCHAR(250),
+    name VARCHAR(250),
+    image VARCHAR(250),
+    current_price VARCHAR(250),
+    market_cap VARCHAR(250),
+    market_cap_rank VARCHAR(250),
+    fully_diluted_valuation VARCHAR(250),
+    total_volume VARCHAR(250),
+    high_24h VARCHAR(250),
+    low_24h VARCHAR(250),
+    price_change_24h VARCHAR(250),
+    price_change_percentage_24h VARCHAR(250),
+    market_cap_change_24h VARCHAR(250),
+    market_cap_change_percentage_24h VARCHAR(250),
+    circulating_supply VARCHAR(250),
+    total_supply VARCHAR(250),
+    max_supply VARCHAR(250),
+    ath VARCHAR(250),
+    ath_change_percentage VARCHAR(250),
+    ath_date VARCHAR(250),
+    atl VARCHAR(250),
+    atl_change_percentage VARCHAR(250),
+    atl_date VARCHAR(250),
+    roi VARCHAR(250),
+    last_updated VARCHAR(250),
+    created_date DATE DEFAULT CURRENT_DATE,
+    file_id INTEGER,
+    CONSTRAINT fk_file
+    FOREIGN KEY(file_id) 
+    REFERENCES coin_crypto_data.crypto_files(id)
+    ON DELETE SET NULL
+);
