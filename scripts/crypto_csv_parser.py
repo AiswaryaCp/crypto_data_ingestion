@@ -1,4 +1,3 @@
-import os
 import io
 import pandas as pd
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
@@ -23,35 +22,35 @@ class CryptoCSVParser:
         print(df.head())
         return df, file_path
     
-    def write_to_files_table(self, file_path, bucket_name):
+    def process_and_load(self, df, file_path, bucket_name):
         pg_hook = PostgresHook(postgres_conn_id=self.pg_conn_id)
         schema_name = bucket_name.replace('-', '_').lower()
-        query = f"INSERT INTO {schema_name}.crypto_files (file_path) VALUES (%s) RETURNING id;"
 
-        with pg_hook.get_conn() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(query, (file_path,))
-                file_id = cursor.fetchone()
-                if file_id:
-                    file_id = file_id[0]
-                    conn.commit()
-                    print(f"DEBUG: Generated file_id is {file_id}")
-                    return file_id
-                else:
-                    raise ValueError("Insert failed, no ID returned.")
+        conn = pg_hook.get_conn()
+        cursor = conn.cursor()
 
-    def load_to_db(self, df, file_id, bucket_name):
-        df['file_id'] = file_id
-        df = df.rename(columns={'id': 'crypto_id'})
-        schema_name = bucket_name.replace('-', '_').lower()
+        try:
+            query = f"INSERT INTO {schema_name}.crypto_files (file_path) VALUES (%s) RETURNING id;"
+            cursor.execute(query, (file_path,))
+            file_id = cursor.fetchone()[0]
 
-        pg_hook = PostgresHook(postgres_conn_id='postgres_default')
-        engine = pg_hook.get_sqlalchemy_engine()
-        df.to_sql(
-            name='crypto_data',
-            schema=schema_name,
-            con=engine,
-            if_exists='append',
-            index=False,
-            chunksize=1000
-        )
+            df['file_id'] = file_id
+            df = df.rename(columns={'id':'crypo_id'})
+
+            data_to_insert = [tuple(x) for x in df.values]
+            target_fields = list(df.columns)
+
+            pg_hook.insert_rows(
+                table=f"{schema_name}.crypto_data",
+                rows=data_to_insert,
+                target_fields=target_fields,
+                commit_every=0
+            )
+
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            raise e
+        finally:
+            cursor.close()
+            conn.close()

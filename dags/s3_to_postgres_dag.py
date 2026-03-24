@@ -16,8 +16,7 @@ def run_parser_task(ds, **kwargs):
     parser = CryptoCSVParser(pg_conn_id='postgres_default')
     
     df, path = parser.get_s3_data(ds, bucket_name, root_folder)
-    file_id = parser.write_to_files_table(path, bucket_name)
-    parser.load_to_db(df, file_id, bucket_name)
+    parser.process_and_load(df, path, bucket_name)
 
 with DAG(
     dag_id="s3_to_postgres_parser_v1",
